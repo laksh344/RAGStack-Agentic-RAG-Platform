@@ -4,10 +4,12 @@ These are callable tool objects that nodes can invoke directly or that
 could be exposed to a ReAct-style agent in future iterations.
 """
 
-from langchain_community.tools.tavily_search import TavilySearchResults
+import structlog
 from langchain_core.tools import tool
 
 from backend.config import settings
+
+logger = structlog.get_logger()
 
 
 @tool
@@ -32,11 +34,26 @@ async def hybrid_search(query: str, k: int = 10) -> list[dict]:
     return [r.model_dump() for r in reranked]
 
 
-def get_web_search_tool(max_results: int = 5) -> TavilySearchResults:
-    """Return a configured Tavily web search tool."""
-    return TavilySearchResults(
-        max_results=max_results,
-        api_key=settings.tavily_api_key,
-        include_answer=True,
-        include_raw_content=False,
-    )
+def web_search(query: str, max_results: int = 5) -> list[dict]:
+    """Run a Tavily web search and return normalised result dicts.
+
+    Uses the official ``tavily-python`` client directly. The deprecated
+    LangChain TavilySearchResults wrapper mishandles the API key (returns
+    401) and is being removed in LangChain 1.0, so we bypass it.
+
+    Returns a list of {"title", "url", "content", "score"} dicts.
+    """
+    from tavily import TavilyClient  # noqa: PLC0415
+
+    client = TavilyClient(api_key=settings.tavily_api_key)
+    response = client.search(query, max_results=max_results, include_answer=False)
+    results = response.get("results", []) if isinstance(response, dict) else []
+    return [
+        {
+            "title": r.get("title", ""),
+            "url": r.get("url", ""),
+            "content": r.get("content", ""),
+            "score": r.get("score", 0.0),
+        }
+        for r in results
+    ]

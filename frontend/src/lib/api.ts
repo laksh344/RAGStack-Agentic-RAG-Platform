@@ -1,4 +1,11 @@
-import type { SSEEvent, Citation, IngestionResult } from "./types";
+import type {
+  SSEEvent,
+  Citation,
+  IngestionResult,
+  DocumentInfo,
+  ConversationSummary,
+  Message,
+} from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1`
@@ -102,6 +109,35 @@ export async function getIngestionStats(): Promise<Record<string, unknown>> {
   const res = await fetch(`${BASE}/ingest/stats`);
   if (!res.ok) throw new Error("Failed to fetch stats");
   return res.json();
+}
+
+export async function listDocuments(): Promise<DocumentInfo[]> {
+  const res = await fetch(`${BASE}/ingest/documents`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.documents ?? [];
+}
+
+export async function deleteDocument(sourceFile: string): Promise<void> {
+  await fetch(`${BASE}/ingest/${encodeURIComponent(sourceFile)}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Conversation history
+// ---------------------------------------------------------------------------
+
+export async function listConversations(): Promise<ConversationSummary[]> {
+  const res = await fetch(`${BASE}/chat/conversations`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.conversations ?? [];
+}
+
+export async function getConversation(conversationId: string): Promise<Message[]> {
+  const res = await fetch(`${BASE}/chat/${encodeURIComponent(conversationId)}`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.messages ?? [];
 }
 
 // ---------------------------------------------------------------------------

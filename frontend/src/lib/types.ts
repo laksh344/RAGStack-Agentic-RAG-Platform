@@ -48,3 +48,19 @@ export interface RetrievedChunk {
   score: number;
   title: string;
 }
+
+// A document currently in the knowledge base (GET /ingest/documents)
+export interface DocumentInfo {
+  source_file: string;
+  chunk_count: number;
+  file_type: string;
+  chunking_strategy: string;
+}
+
+// A conversation summary for the sidebar (GET /chat/conversations)
+export interface ConversationSummary {
+  conversation_id: string;
+  preview: string;
+  message_count: number;
+  updated_at: string;
+}

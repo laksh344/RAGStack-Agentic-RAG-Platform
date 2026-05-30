@@ -172,6 +172,18 @@ async def get_ingestion_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/ingest/documents")
+async def list_documents():
+    """List the documents currently in the knowledge base."""
+    try:
+        pipeline = EmbeddingPipeline()
+        documents = pipeline.list_documents()
+        return {"documents": documents, "count": len(documents)}
+    except Exception as e:
+        logger.error("ingest.list_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/ingest/{source_file}")
 async def delete_document(source_file: str):
     """Remove all chunks for a document from both stores."""

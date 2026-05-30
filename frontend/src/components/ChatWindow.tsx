@@ -2,30 +2,54 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, ThumbsUp, ThumbsDown, AlertTriangle, Loader2 } from "lucide-react";
-import { streamChat, submitFeedback } from "@/lib/api";
+import { streamChat, submitFeedback, getConversation } from "@/lib/api";
 import type { Message, Citation } from "@/lib/types";
 
 interface Props {
-  conversationId: string | null;
+  // The conversation to resume, or null for a fresh chat. The parent forces a
+  // remount (via key) when this changes, so it is only read on mount.
+  initialConversationId: string | null;
   onCitationClick: (citations: Citation[]) => void;
   onConversationId: (id: string) => void;
+  onAfterResponse?: () => void;
 }
 
 const WELCOME = `Hi! I'm RAGStack — an agentic RAG assistant.
 
-Upload documents using the **Upload** tab, then ask me anything about them. I'll search your knowledge base with hybrid vector + keyword search, rerank with Cohere, and generate a cited answer using GPT-4o.
+Upload documents using the **Upload** tab, then ask me anything about them. I'll search your knowledge base with hybrid vector + keyword search, rerank with Cohere, and generate a cited, grounded answer.
 
 Try asking: *"What are the main topics in the uploaded documents?"*`;
 
-export default function ChatWindow({ conversationId, onCitationClick, onConversationId }: Props) {
+export default function ChatWindow({
+  initialConversationId,
+  onCitationClick,
+  onConversationId,
+  onAfterResponse,
+}: Props) {
   const [messages,   setMessages]   = useState<Message[]>([]);
   const [input,      setInput]      = useState("");
   const [streaming,  setStreaming]  = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const bottomRef  = useRef<HTMLDivElement>(null);
   const inputRef   = useRef<HTMLTextAreaElement>(null);
-  const convIdRef  = useRef<string | null>(conversationId);
+  const convIdRef  = useRef<string | null>(initialConversationId);
 
-  useEffect(() => { convIdRef.current = conversationId; }, [conversationId]);
+  // Load prior messages when resuming an existing conversation (on mount).
+  useEffect(() => {
+    let cancelled = false;
+    if (initialConversationId) {
+      setLoadingHistory(true);
+      getConversation(initialConversationId)
+        .then((msgs) => {
+          if (!cancelled) setMessages(msgs);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingHistory(false);
+        });
+    }
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -89,9 +113,11 @@ export default function ChatWindow({ conversationId, onCitationClick, onConversa
               m.id === assistantId ? { ...m, streaming: false } : m
             )
           );
-          if (!convIdRef.current) onConversationId(newConvId);
+          const wasNew = !convIdRef.current;
+          if (wasNew) onConversationId(newConvId);
           convIdRef.current = newConvId;
           setStreaming(false);
+          onAfterResponse?.();   // refresh sidebar history
         },
         onError: (detail) => {
           setMessages((prev) =>
@@ -114,7 +140,7 @@ export default function ChatWindow({ conversationId, onCitationClick, onConversa
       );
       setStreaming(false);
     }
-  }, [input, streaming, onConversationId]);
+  }, [input, streaming, onConversationId, onAfterResponse]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -127,7 +153,12 @@ export default function ChatWindow({ conversationId, onCitationClick, onConversa
     <div className="flex flex-col h-full">
       {/* ── Message list ─────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
-        {messages.length === 0 && (
+        {loadingHistory && (
+          <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-8">
+            <Loader2 size={15} className="animate-spin" /> Loading conversation…
+          </div>
+        )}
+        {!loadingHistory && messages.length === 0 && (
           <WelcomeCard message={WELCOME} />
         )}
         {messages.map((msg) => (

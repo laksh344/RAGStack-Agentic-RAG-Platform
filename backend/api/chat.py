@@ -101,6 +101,41 @@ async def submit_feedback(request: FeedbackRequest):
         await redis.aclose()
 
 
+@router.get("/chat/conversations")
+async def list_conversations():
+    """List stored conversations with a short preview, newest first.
+
+    Used by the sidebar chat-history panel. Returns an empty list if Redis is
+    unavailable so the UI degrades gracefully.
+    """
+    redis = await _get_redis()
+    if redis is None:
+        return {"conversations": [], "count": 0}
+
+    try:
+        summaries: list[dict] = []
+        async for key in redis.scan_iter(match="conversation:*:messages", count=100):
+            conv_id = key.split(":")[1]
+            raw = await redis.lrange(key, 0, -1)
+            if not raw:
+                continue
+            messages = [Message.model_validate(json.loads(m)) for m in raw]
+            first_user = next((m for m in messages if m.role == "user"), messages[0])
+            summaries.append(
+                {
+                    "conversation_id": conv_id,
+                    "preview": first_user.content[:80],
+                    "message_count": len(messages),
+                    "updated_at": messages[-1].timestamp,
+                }
+            )
+
+        summaries.sort(key=lambda s: s["updated_at"], reverse=True)
+        return {"conversations": summaries[:50], "count": len(summaries)}
+    finally:
+        await redis.aclose()
+
+
 @router.get("/chat/{conversation_id}", response_model=Conversation)
 async def get_conversation(conversation_id: str):
     """Return full conversation history for a given conversation ID."""

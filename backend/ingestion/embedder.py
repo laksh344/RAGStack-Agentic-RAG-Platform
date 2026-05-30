@@ -229,6 +229,52 @@ class EmbeddingPipeline:
             },
         }
 
+    def list_documents(self) -> list[dict]:
+        """List distinct ingested documents with per-document chunk counts.
+
+        Aggregates over the Elasticsearch index by ``source_file`` so the UI
+        can show what's currently in the knowledge base. Returns an empty list
+        if the index doesn't exist yet.
+        """
+        if not self.es.indices.exists(index=settings.es_index):
+            return []
+
+        response = self.es.search(
+            index=settings.es_index,
+            body={
+                "size": 0,
+                "aggs": {
+                    "documents": {
+                        "terms": {"field": "source_file", "size": 1000},
+                        "aggs": {
+                            "file_type": {"terms": {"field": "file_type", "size": 1}},
+                            "chunking_strategy": {
+                                "terms": {"field": "chunking_strategy", "size": 1}
+                            },
+                        },
+                    }
+                },
+            },
+        )
+
+        buckets = response["aggregations"]["documents"]["buckets"]
+        documents = []
+        for b in buckets:
+            file_type_buckets = b.get("file_type", {}).get("buckets", [])
+            strategy_buckets = b.get("chunking_strategy", {}).get("buckets", [])
+            documents.append(
+                {
+                    "source_file": b["key"],
+                    "chunk_count": b["doc_count"],
+                    "file_type": file_type_buckets[0]["key"] if file_type_buckets else "",
+                    "chunking_strategy": (
+                        strategy_buckets[0]["key"] if strategy_buckets else ""
+                    ),
+                }
+            )
+        documents.sort(key=lambda d: d["source_file"].lower())
+        return documents
+
     def delete_by_source(self, source_file: str) -> dict:
         """Delete all chunks for a given source file from both stores."""
         from qdrant_client.models import FieldCondition, Filter, MatchValue
