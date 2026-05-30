@@ -2,7 +2,7 @@
 
 > Production RAG platform with multi-modal document understanding, hybrid search, a LangGraph agent, LangSmith observability, guardrails, and GCP Cloud Run deployment.
 
-[![CI](https://github.com/laksh/ragstack/actions/workflows/ci.yml/badge.svg)](https://github.com/laksh/ragstack/actions/workflows/ci.yml)
+[![CI](https://github.com/laksh344/Ragstack/actions/workflows/ci.yml/badge.svg)](https://github.com/laksh344/Ragstack/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
 [![LangChain Certified ×3](https://img.shields.io/badge/LangChain-Certified×3-green.svg)](https://langchain.com)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-yellow.svg)](LICENSE)
@@ -60,7 +60,7 @@
 
 ```bash
 # 1. Clone and configure
-git clone https://github.com/laksh/ragstack.git && cd ragstack
+git clone https://github.com/laksh344/Ragstack.git && cd Ragstack
 cp .env.example .env          # add OPENAI_API_KEY, LANGCHAIN_API_KEY, etc.
 
 # 2. Start infrastructure (Qdrant, Elasticsearch, Redis)
