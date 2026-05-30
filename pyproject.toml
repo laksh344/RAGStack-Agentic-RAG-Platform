@@ -72,6 +72,12 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# The importable package lives in backend/ (not ragstack/), so tell hatchling
+# explicitly — otherwise `pip install .` / `uv pip install .` can't build the
+# wheel (this was breaking CI's install step and the Docker production build).
+[tool.hatch.build.targets.wheel]
+packages = ["backend"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

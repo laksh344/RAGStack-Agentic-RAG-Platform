@@ -1,8 +1,9 @@
 name: Deploy to GCP Cloud Run
 
+# Manual-only: this requires GCP secrets (GCP_SA_KEY, GCP_PROJECT_ID, etc.).
+# Run it from the Actions tab once those are configured. Keeping it off the
+# push trigger avoids a failing deploy on every commit when GCP isn't set up.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 env:
