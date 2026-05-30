@@ -20,12 +20,13 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel
 
 from backend.agent.state import AgentState
+from backend.api.deps import require_auth
 from backend.config import settings
 from backend.guardrails import get_input_validator, get_pii_redactor
 from backend.models.conversation import Conversation, Message
@@ -69,10 +70,10 @@ class FeedbackRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, user_id: str = Depends(require_auth)):
     """Invoke the LangGraph agent and stream the response via Server-Sent Events."""
     return StreamingResponse(
-        _stream_chat(request),
+        _stream_chat(request, user_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -83,7 +84,9 @@ async def chat(request: ChatRequest):
 
 
 @router.post("/chat/feedback")
-async def submit_feedback(request: FeedbackRequest):
+async def submit_feedback(
+    request: FeedbackRequest, user_id: str = Depends(require_auth)
+):
     """Store user feedback for a message (feeds LangSmith datasets in Week 3)."""
     redis = await _get_redis()
     if redis is None:
@@ -91,7 +94,7 @@ async def submit_feedback(request: FeedbackRequest):
         return {"status": "ok", "message_id": request.message_id, "stored": False}
 
     try:
-        key = f"feedback:{request.message_id}"
+        key = f"feedback:{user_id}:{request.message_id}"
         await redis.hset(
             key,
             mapping={
@@ -107,11 +110,11 @@ async def submit_feedback(request: FeedbackRequest):
 
 
 @router.get("/chat/conversations")
-async def list_conversations():
-    """List stored conversations with a short preview, newest first.
+async def list_conversations(user_id: str = Depends(require_auth)):
+    """List the caller's conversations with a short preview, newest first.
 
-    Used by the sidebar chat-history panel. Returns an empty list if Redis is
-    unavailable so the UI degrades gracefully.
+    Scoped to the authenticated user so one user can never see another's chats.
+    Returns an empty list if Redis is unavailable so the UI degrades gracefully.
     """
     redis = await _get_redis()
     if redis is None:
@@ -119,8 +122,10 @@ async def list_conversations():
 
     try:
         summaries: list[dict] = []
-        async for key in redis.scan_iter(match="conversation:*:messages", count=100):
-            conv_id = key.split(":")[1]
+        pattern = f"conversation:{user_id}:*:messages"
+        async for key in redis.scan_iter(match=pattern, count=100):
+            # key = conversation:{user_id}:{conv_id}:messages
+            conv_id = key.split(":")[2]
             raw = await redis.lrange(key, 0, -1)
             if not raw:
                 continue
@@ -142,14 +147,20 @@ async def list_conversations():
 
 
 @router.get("/chat/{conversation_id}", response_model=Conversation)
-async def get_conversation(conversation_id: str):
-    """Return full conversation history for a given conversation ID."""
+async def get_conversation(
+    conversation_id: str, user_id: str = Depends(require_auth)
+):
+    """Return full history for one of the caller's conversations.
+
+    The Redis key is namespaced by user_id, so requesting another user's
+    conversation_id simply yields "not found" (no cross-user reads).
+    """
     redis = await _get_redis()
     if redis is None:
         raise HTTPException(status_code=503, detail="Conversation store unavailable")
 
     try:
-        raw_messages = await _load_raw_messages(redis, conversation_id)
+        raw_messages = await _load_raw_messages(redis, user_id, conversation_id)
         if not raw_messages:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -168,7 +179,9 @@ async def get_conversation(conversation_id: str):
 # ---------------------------------------------------------------------------
 
 
-async def _stream_chat(request: ChatRequest) -> AsyncGenerator[str, None]:
+async def _stream_chat(
+    request: ChatRequest, user_id: str
+) -> AsyncGenerator[str, None]:
     """Run the agent and yield SSE events."""
     conversation_id = request.conversation_id or str(uuid4())
     redis = await _get_redis()
@@ -177,19 +190,19 @@ async def _stream_chat(request: ChatRequest) -> AsyncGenerator[str, None]:
         # --- Load conversation history from Redis ---
         history: list[Message] = []
         if redis:
-            raw = await _load_raw_messages(redis, conversation_id)
+            raw = await _load_raw_messages(redis, user_id, conversation_id)
             history = [Message.model_validate(json.loads(m)) for m in raw]
 
         # --- Persist the user message as typed (their own history) ---
         user_msg = Message(role="user", content=request.query)
         if redis:
-            await _append_message(redis, conversation_id, user_msg)
+            await _append_message(redis, user_id, conversation_id, user_msg)
 
         # --- Pre-generation guardrails on the INPUT (before any LLM call) ---
         validation = _validator.validate(request.query)
         if "prompt_injection_detected" in validation.flags:
             async for evt in _refuse(
-                redis, conversation_id,
+                redis, user_id, conversation_id,
                 "I can't help with that — it looks like an attempt to override "
                 "my instructions.",
                 validation.flags,
@@ -233,7 +246,7 @@ async def _stream_chat(request: ChatRequest) -> AsyncGenerator[str, None]:
             guardrail_flags=flags,
         )
         if redis:
-            await _append_message(redis, conversation_id, assistant_msg)
+            await _append_message(redis, user_id, conversation_id, assistant_msg)
 
         # --- Stream response word by word ---
         words = response_text.split(" ")
@@ -286,17 +299,24 @@ async def _get_redis():
         return None
 
 
-async def _load_raw_messages(redis, conversation_id: str) -> list[str]:
+def _conv_key(user_id: str, conversation_id: str) -> str:
+    """User-namespaced Redis key for a conversation's message list."""
+    return f"conversation:{user_id}:{conversation_id}:messages"
+
+
+async def _load_raw_messages(redis, user_id: str, conversation_id: str) -> list[str]:
     """Return the last N serialised message strings for a conversation."""
-    key = f"conversation:{conversation_id}:messages"
+    key = _conv_key(user_id, conversation_id)
     # LRANGE 0 -1 returns all; we limit by slicing from the tail.
     raw: list[str] = await redis.lrange(key, -_MAX_HISTORY_MESSAGES, -1)
     return raw
 
 
-async def _append_message(redis, conversation_id: str, message: Message) -> None:
+async def _append_message(
+    redis, user_id: str, conversation_id: str, message: Message
+) -> None:
     """Append a message and reset the TTL on the conversation key."""
-    key = f"conversation:{conversation_id}:messages"
+    key = _conv_key(user_id, conversation_id)
     await redis.rpush(key, message.model_dump_json())
     await redis.expire(key, _CONV_TTL_SECONDS)
 
@@ -324,6 +344,7 @@ def _sse(payload: dict) -> str:
 
 async def _refuse(
     redis,
+    user_id: str,
     conversation_id: str,
     message: str,
     flags: list[str],
@@ -335,7 +356,7 @@ async def _refuse(
     """
     assistant_msg = Message(role="assistant", content=message, guardrail_flags=flags)
     if redis:
-        await _append_message(redis, conversation_id, assistant_msg)
+        await _append_message(redis, user_id, conversation_id, assistant_msg)
 
     for word in message.split(" "):
         yield _sse({"type": "token", "content": word + " "})

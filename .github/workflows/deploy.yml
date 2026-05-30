@@ -83,6 +83,8 @@ jobs:
             REDIS_URL=${{ secrets.REDIS_URL }}
             LANGCHAIN_PROJECT=ragstack
             LANGCHAIN_TRACING_V2=true
+            API_KEYS=${{ secrets.API_KEYS }}
+            CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
           flags: |
             --min-instances=0
             --max-instances=3

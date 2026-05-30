@@ -12,8 +12,9 @@ import time
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from backend.api.deps import require_auth
 from backend.config import settings
 from backend.ingestion.chunker import chunk_document
 from backend.ingestion.embedder import EmbeddingPipeline
@@ -51,6 +52,7 @@ async def ingest_document(
     chunk_size: int = Form(default=None),
     chunk_overlap: int = Form(default=None),
     use_vision: bool = Form(default=True),
+    _user: str = Depends(require_auth),
 ):
     """Upload and process a document through the full RAG pipeline.
 
@@ -198,7 +200,7 @@ async def ingest_document(
 
 
 @router.get("/ingest/stats")
-async def get_ingestion_stats():
+async def get_ingestion_stats(_user: str = Depends(require_auth)):
     """Get current statistics from vector and keyword stores."""
     try:
         pipeline = EmbeddingPipeline()
@@ -209,7 +211,7 @@ async def get_ingestion_stats():
 
 
 @router.get("/ingest/documents")
-async def list_documents():
+async def list_documents(_user: str = Depends(require_auth)):
     """List the documents currently in the knowledge base."""
     try:
         pipeline = EmbeddingPipeline()
@@ -221,7 +223,7 @@ async def list_documents():
 
 
 @router.delete("/ingest/{source_file}")
-async def delete_document(source_file: str):
+async def delete_document(source_file: str, _user: str = Depends(require_auth)):
     """Remove all chunks for a document from both stores."""
     try:
         pipeline = EmbeddingPipeline()

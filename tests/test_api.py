@@ -331,3 +331,97 @@ class TestSafeUploadName:
                 raise AssertionError(f"expected rejection for {bad!r}")
             except HTTPException as e:
                 assert e.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Authentication (opt-in API key) + per-user isolation
+# ---------------------------------------------------------------------------
+
+
+class TestAuth:
+    def test_disabled_when_no_keys(self):
+        import asyncio
+
+        from backend.api.deps import require_auth
+        # Default test settings have empty API_KEYS → open mode.
+        uid = asyncio.run(require_auth(x_api_key=None, authorization=None))
+        assert uid == "local"
+
+    def test_valid_key_returns_stable_user_id(self, monkeypatch):
+        import asyncio
+
+        from backend.api.deps import require_auth
+        monkeypatch.setattr("backend.config.settings.api_keys", "secret-1,secret-2")
+        a = asyncio.run(require_auth(x_api_key="secret-1", authorization=None))
+        b = asyncio.run(require_auth(x_api_key="secret-1", authorization=None))
+        assert a.startswith("u_")
+        assert a == b  # deterministic per key
+
+    def test_different_keys_are_isolated_users(self, monkeypatch):
+        import asyncio
+
+        from backend.api.deps import require_auth
+        monkeypatch.setattr("backend.config.settings.api_keys", "key-a,key-b")
+        ua = asyncio.run(require_auth(x_api_key="key-a", authorization=None))
+        ub = asyncio.run(require_auth(x_api_key="key-b", authorization=None))
+        assert ua != ub  # closes IDOR — distinct namespaces
+
+    def test_bearer_header_accepted(self, monkeypatch):
+        import asyncio
+
+        from backend.api.deps import require_auth
+        monkeypatch.setattr("backend.config.settings.api_keys", "tok")
+        uid = asyncio.run(require_auth(x_api_key=None, authorization="Bearer tok"))
+        assert uid.startswith("u_")
+
+    def test_missing_key_rejected(self, monkeypatch):
+        import asyncio
+
+        from fastapi import HTTPException
+
+        from backend.api.deps import require_auth
+        monkeypatch.setattr("backend.config.settings.api_keys", "tok")
+        try:
+            asyncio.run(require_auth(x_api_key=None, authorization=None))
+            raise AssertionError("expected 401")
+        except HTTPException as e:
+            assert e.status_code == 401
+
+    def test_invalid_key_rejected(self, monkeypatch):
+        import asyncio
+
+        from fastapi import HTTPException
+
+        from backend.api.deps import require_auth
+        monkeypatch.setattr("backend.config.settings.api_keys", "tok")
+        try:
+            asyncio.run(require_auth(x_api_key="wrong", authorization=None))
+            raise AssertionError("expected 401")
+        except HTTPException as e:
+            assert e.status_code == 401
+
+    def test_endpoint_enforces_key_when_enabled(self, client, monkeypatch):
+        monkeypatch.setattr("backend.config.settings.api_keys", "topsecret")
+        assert client.get("/api/v1/config").status_code == 401
+        ok = client.get("/api/v1/config", headers={"X-API-Key": "topsecret"})
+        assert ok.status_code == 200
+
+    def test_health_stays_open(self, client, monkeypatch):
+        monkeypatch.setattr("backend.config.settings.api_keys", "topsecret")
+        # Liveness probe must not require auth.
+        assert client.get("/api/v1/health").status_code == 200
+
+
+class TestConversationScoping:
+    def test_conv_key_is_user_scoped(self):
+        from backend.api.chat import _conv_key
+        ka = _conv_key("u_aaa", "conv-1")
+        kb = _conv_key("u_bbb", "conv-1")
+        assert ka != kb
+        assert "u_aaa" in ka and "u_bbb" in kb
+        assert ka.endswith(":messages")
+
+    def test_health_redis_creds_stripped(self):
+        from backend.api.admin import _safe_host
+        assert _safe_host("redis://user:pass@redis-host:6379") == "redis-host:6379"
+        assert _safe_host("http://localhost:9200") == "http://localhost:9200"

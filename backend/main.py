@@ -40,9 +40,11 @@ app = FastAPI(
 )
 
 # --- CORS ---
+# Explicit allowlist from settings.cors_origins (never "*" with credentials —
+# that combination is rejected by browsers and unsafe for an open API).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

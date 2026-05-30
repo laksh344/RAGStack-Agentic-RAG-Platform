@@ -9,8 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
+
+from backend.api.deps import require_auth
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -41,7 +43,11 @@ class EvaluateResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/evaluate", response_model=EvaluateResponse)
-async def run_evaluation(request: EvaluateRequest, background_tasks: BackgroundTasks):
+async def run_evaluation(
+    request: EvaluateRequest,
+    background_tasks: BackgroundTasks,
+    _user: str = Depends(require_auth),
+):
     """Trigger the evaluation suite.
 
     Runs synchronously (small dataset) and returns results immediately.
@@ -80,7 +86,7 @@ async def run_evaluation(request: EvaluateRequest, background_tasks: BackgroundT
 
 
 @router.get("/evaluate/results")
-async def list_results():
+async def list_results(_user: str = Depends(require_auth)):
     """List all stored evaluation run summaries."""
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     summaries: list[dict] = []

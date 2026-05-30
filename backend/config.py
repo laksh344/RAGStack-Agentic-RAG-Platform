@@ -57,11 +57,26 @@ class Settings(BaseSettings):
     chunk_size: int = 1000
     chunk_overlap: int = 200
 
+    # --- Security ---
+    # Comma-separated API keys. Empty = auth disabled (dev/demo).
+    api_keys: str = ""
+    # Comma-separated allowed CORS origins.
+    cors_origins: str = "http://localhost:3000"
+
     @property
     def upload_path(self) -> Path:
         path = Path(self.upload_dir)
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @property
+    def api_key_set(self) -> set[str]:
+        """Configured API keys; empty set means auth is disabled."""
+        return {k.strip() for k in self.api_keys.split(",") if k.strip()}
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 settings = Settings()
