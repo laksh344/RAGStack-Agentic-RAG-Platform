@@ -7,9 +7,15 @@ agent graph structure and routing / context-building helpers.
 
 
 from backend.agent.nodes.generator import _build_context
-from backend.agent.nodes.retriever import _RELEVANCE_THRESHOLD, route_after_retrieval
+from backend.agent.nodes.retriever import (
+    _RERANK_THRESHOLD,
+    _RRF_THRESHOLD,
+    _is_sufficient,
+    route_after_retrieval,
+)
 from backend.agent.nodes.router import route_after_router
 from backend.agent.state import AgentState
+from backend.retrieval import SearchResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,11 +75,35 @@ class TestRouteAfterRetrieval:
     def test_insufficient_goes_to_web_search(self):
         assert route_after_retrieval(_make_state(needs_web_search=True)) == "web_search"
 
-    def test_threshold_boundary(self):
-        doc = {"chunk_id": "c1", "content": "x", "source_file": "a.txt",
-               "score": _RELEVANCE_THRESHOLD}
-        state = _make_state(needs_web_search=False, retrieved_docs=[doc])
-        assert route_after_retrieval(state) == "generator"
+
+def _result(score: float, source: str) -> SearchResult:
+    return SearchResult(
+        chunk_id="c1", content="x", source_file="a.txt", score=score, source=source
+    )
+
+
+class TestIsSufficient:
+    """The sufficiency gate must use the right scale per result source."""
+
+    def test_empty_is_insufficient(self):
+        assert _is_sufficient([]) is False
+
+    def test_reranked_uses_cohere_scale(self):
+        # 0.3 clears the rerank threshold; 0.05 (which would clear the RRF
+        # threshold) must NOT count as sufficient on the Cohere scale.
+        assert _is_sufficient([_result(0.30, "reranked")]) is True
+        assert _is_sufficient([_result(0.05, "reranked")]) is False
+
+    def test_rrf_fallback_uses_rrf_scale(self):
+        # On the RRF scale a small score is fine; near-zero is not.
+        assert _is_sufficient([_result(0.02, "hybrid")]) is True
+        assert _is_sufficient([_result(0.001, "hybrid")]) is False
+
+    def test_reranked_threshold_boundary(self):
+        assert _is_sufficient([_result(_RERANK_THRESHOLD, "reranked")]) is True
+
+    def test_rrf_threshold_boundary(self):
+        assert _is_sufficient([_result(_RRF_THRESHOLD, "hybrid")]) is True
 
 
 # ---------------------------------------------------------------------------

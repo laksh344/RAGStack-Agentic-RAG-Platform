@@ -196,10 +196,14 @@ class TestKeywordStoreHelpers:
 
 
 class TestRerankerHelpers:
-    def test_mark_reranked_sets_source(self):
+    def test_mark_reranked_preserves_source(self):
+        # Fallback must NOT relabel as "reranked" — the score is still RRF-scale,
+        # and the retriever relies on source to pick the right threshold.
         results = _make_results(["a", "b"])
+        original_source = results[0].source
         tagged = _mark_reranked(results)
-        assert all(r.source == "reranked" for r in tagged)
+        assert all(r.source == original_source for r in tagged)
+        assert all(r.source != "reranked" for r in tagged)
 
     def test_mark_reranked_preserves_scores(self):
         results = _make_results(["a"])
@@ -209,11 +213,12 @@ class TestRerankerHelpers:
 
     def test_mark_reranked_does_not_mutate_input(self):
         results = _make_results(["a"])
-        _mark_reranked(results)
-        assert results[0].source != "reranked"
+        copies = _mark_reranked(results)
+        copies[0].score = -999
+        assert results[0].score != -999  # input untouched
 
     def test_reranker_fallback_when_no_key(self, monkeypatch):
-        """Reranker without API key returns fallback list synchronously."""
+        """Reranker without API key returns fallback list with source preserved."""
         import asyncio
 
         from backend.retrieval.reranker import Reranker
@@ -225,4 +230,5 @@ class TestRerankerHelpers:
         candidates = _make_results(["a", "b", "c", "d", "e"])
         top = asyncio.run(r.rerank("query", candidates, top_k=3))
         assert len(top) == 3
-        assert all(t.source == "reranked" for t in top)
+        # Fallback keeps the RRF-scale source so the sufficiency gate stays correct.
+        assert all(t.source != "reranked" for t in top)

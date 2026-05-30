@@ -90,10 +90,11 @@ class Reranker:
 
 
 def _mark_reranked(results: list[SearchResult]) -> list[SearchResult]:
-    """Tag results as reranked without changing scores (fallback path)."""
-    out = []
-    for r in results:
-        c = r.model_copy()
-        c.source = "reranked"
-        out.append(c)
-    return out
+    """Fallback path: return copies with the original source preserved.
+
+    We deliberately do NOT relabel these as "reranked". The scores are still on
+    the RRF scale (not Cohere's 0-1 relevance scale), and downstream callers
+    rely on ``source`` to know which scale a score is on (see
+    retriever._is_sufficient).
+    """
+    return [r.model_copy() for r in results]

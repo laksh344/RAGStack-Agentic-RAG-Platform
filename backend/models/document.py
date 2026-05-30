@@ -94,4 +94,5 @@ class IngestionResult(BaseModel):
         default_factory=lambda: datetime.now(UTC).isoformat()
     )
     errors: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
     vision_pages_processed: int = 0

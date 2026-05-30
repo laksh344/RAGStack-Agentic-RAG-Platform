@@ -1,6 +1,32 @@
-"""Shared types for the guardrails layer."""
+"""Shared types and singleton accessors for the guardrails layer."""
+
+from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from backend.guardrails.input_validator import InputValidator
+    from backend.guardrails.pii_redactor import PiiRedactor
+
+
+# ---------------------------------------------------------------------------
+# Singletons — Presidio (spaCy) is expensive to construct, so share one
+# instance across the chat API and the guardrails node.
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=1)
+def get_pii_redactor() -> "PiiRedactor":
+    from backend.guardrails.pii_redactor import PiiRedactor
+
+    return PiiRedactor()
+
+
+@lru_cache(maxsize=1)
+def get_input_validator() -> "InputValidator":
+    from backend.guardrails.input_validator import InputValidator
+
+    return InputValidator()
 
 
 class PiiResult(BaseModel):

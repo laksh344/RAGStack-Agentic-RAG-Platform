@@ -10,16 +10,15 @@ frontend can surface safety information per-message.
 import structlog
 
 from backend.agent.state import AgentState
+from backend.guardrails import get_input_validator, get_pii_redactor
 from backend.guardrails.hallucination import HALLUCINATION_THRESHOLD, HallucinationDetector
-from backend.guardrails.input_validator import InputValidator
-from backend.guardrails.pii_redactor import PiiRedactor
 from backend.guardrails.token_budget import TokenBudget
 from backend.observability.tracing import add_run_metadata
 
 logger = structlog.get_logger()
 
-_pii      = PiiRedactor()
-_validator = InputValidator()
+_pii      = get_pii_redactor()
+_validator = get_input_validator()
 _detector  = HallucinationDetector()
 
 

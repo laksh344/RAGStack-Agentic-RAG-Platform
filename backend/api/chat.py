@@ -27,10 +27,15 @@ from pydantic import BaseModel
 
 from backend.agent.state import AgentState
 from backend.config import settings
+from backend.guardrails import get_input_validator, get_pii_redactor
 from backend.models.conversation import Conversation, Message
 
 logger = structlog.get_logger()
 router = APIRouter()
+
+# Shared guardrail singletons (Presidio/spaCy is expensive to construct).
+_validator = get_input_validator()
+_pii = get_pii_redactor()
 
 # ---------------------------------------------------------------------------
 # Redis configuration
@@ -175,15 +180,31 @@ async def _stream_chat(request: ChatRequest) -> AsyncGenerator[str, None]:
             raw = await _load_raw_messages(redis, conversation_id)
             history = [Message.model_validate(json.loads(m)) for m in raw]
 
-        # --- Persist user message ---
+        # --- Persist the user message as typed (their own history) ---
         user_msg = Message(role="user", content=request.query)
         if redis:
             await _append_message(redis, conversation_id, user_msg)
 
+        # --- Pre-generation guardrails on the INPUT (before any LLM call) ---
+        validation = _validator.validate(request.query)
+        if "prompt_injection_detected" in validation.flags:
+            async for evt in _refuse(
+                redis, conversation_id,
+                "I can't help with that — it looks like an attempt to override "
+                "my instructions.",
+                validation.flags,
+            ):
+                yield evt
+            return
+
+        # Redact PII from the query before it reaches the LLM or embeddings,
+        # so user PII is never sent to a third-party provider.
+        safe_query = _pii.redact(request.query).redacted_text
+
         # --- Build LangGraph initial state ---
         lc_history = _to_langchain_messages(history)
         initial_state: AgentState = {
-            "query": request.query,
+            "query": safe_query,
             "messages": lc_history,
             "route": "",
             "iteration_count": 0,
@@ -299,3 +320,31 @@ def _to_langchain_messages(history: list[Message]) -> list[BaseMessage]:
 def _sse(payload: dict) -> str:
     """Format a dict as an SSE data line."""
     return f"data: {json.dumps(payload)}\n\n"
+
+
+async def _refuse(
+    redis,
+    conversation_id: str,
+    message: str,
+    flags: list[str],
+) -> AsyncGenerator[str, None]:
+    """Stream a guardrail refusal as a normal assistant turn and persist it.
+
+    Persisting the refusal keeps the conversation consistent (no dangling user
+    turn) when input guardrails block a request.
+    """
+    assistant_msg = Message(role="assistant", content=message, guardrail_flags=flags)
+    if redis:
+        await _append_message(redis, conversation_id, assistant_msg)
+
+    for word in message.split(" "):
+        yield _sse({"type": "token", "content": word + " "})
+        await asyncio.sleep(0)
+
+    yield _sse({"type": "guardrail_flags", "data": flags})
+    yield _sse({
+        "type": "done",
+        "message_id": assistant_msg.id,
+        "conversation_id": conversation_id,
+    })
+    logger.info("chat.blocked", conversation_id=conversation_id, flags=flags)

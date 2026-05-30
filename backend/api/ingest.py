@@ -8,7 +8,6 @@ The pipeline: Upload → Parse → (Vision enrich) → Chunk → Embed → Store
 Each step is traced in LangSmith for full observability.
 """
 
-import shutil
 import time
 from pathlib import Path
 
@@ -18,13 +17,31 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from backend.config import settings
 from backend.ingestion.chunker import chunk_document
 from backend.ingestion.embedder import EmbeddingPipeline
-from backend.ingestion.metadata import extract_file_metadata
 from backend.ingestion.parser import parse_document
 from backend.ingestion.vision import enrich_with_vision
 from backend.models.document import ChunkingStrategy, FileType, IngestionResult
 
 logger = structlog.get_logger()
 router = APIRouter()
+
+# Read uploads in 1 MB chunks so we can enforce the size limit while streaming.
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def _safe_upload_name(filename: str | None) -> str:
+    """Return a filesystem-safe basename, stripping any directory components.
+
+    Defends against path traversal: a crafted filename like
+    "../../../etc/cron.d/x" or "..\\..\\Windows\\System32\\x" is reduced to its
+    final path component so it can never escape the upload directory. Both "/"
+    and "\\" are normalised so this holds regardless of the host OS (Linux
+    otherwise treats "\\" as a literal filename character).
+    """
+    raw = (filename or "upload").replace("\\", "/")
+    base = Path(raw).name
+    if not base or base in (".", ".."):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    return base
 
 
 @router.post("/ingest", response_model=IngestionResult)
@@ -46,6 +63,7 @@ async def ingest_document(
     """
     start_time = time.perf_counter()
     errors: list[str] = []
+    notes: list[str] = []
 
     # --- Validate ---
     ext = Path(file.filename or "unknown").suffix.lower()
@@ -56,31 +74,39 @@ async def ingest_document(
             detail=f"Unsupported file type: {ext}. Supported: .pdf, .docx, .csv, .txt, .xlsx",
         )
 
-    # Save uploaded file to disk
-    filename = file.filename or "upload"
+    # Save uploaded file to disk, enforcing the size limit *while* streaming so
+    # an oversized upload can't fill the disk before being rejected.
+    filename = _safe_upload_name(file.filename)
     upload_path = settings.upload_path / filename
+    max_bytes = settings.max_file_size_mb * 1024 * 1024
+    written = 0
     try:
         with open(upload_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+            while chunk := await file.read(_UPLOAD_CHUNK_BYTES):
+                written += len(chunk)
+                if written > max_bytes:
+                    upload_path.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File too large (max {settings.max_file_size_mb}MB)",
+                    )
+                f.write(chunk)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
-
-    file_meta = extract_file_metadata(upload_path)
-    if file_meta["file_size_mb"] > settings.max_file_size_mb:
         upload_path.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"File too large: {file_meta['file_size_mb']}MB "
-                f"(max: {settings.max_file_size_mb}MB)"
-            ),
-        )
+        logger.error("ingest.save_error", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+
+    if written == 0:
+        upload_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     logger.info(
         "ingest.start",
-        file=file.filename,
+        file=filename,
         type=file_type.value,
-        size_mb=file_meta["file_size_mb"],
+        size_mb=round(written / 1024 / 1024, 2),
     )
 
     # --- Parse ---
@@ -104,6 +130,15 @@ async def ingest_document(
         except Exception as e:
             errors.append(f"Vision enrichment error: {e}")
             logger.warning("ingest.vision_error", error=str(e))
+    elif use_vision and settings.llm_provider != "openai":
+        # Make the skip explicit instead of silently dropping multi-modal
+        # extraction — vision currently requires the OpenAI provider.
+        visual_pages = [p for p in parsed_doc.pages if p.has_tables or p.has_images]
+        if visual_pages:
+            notes.append(
+                f"Vision enrichment skipped for {len(visual_pages)} page(s): "
+                f"requires the OpenAI provider (current: {settings.llm_provider})."
+            )
 
     # --- Chunk ---
     try:
@@ -129,9 +164,9 @@ async def ingest_document(
         pipeline = EmbeddingPipeline()
         embed_stats = await pipeline.embed_and_store(chunks)
     except Exception as e:
-        errors.append(f"Embedding error: {e}")
         logger.error("ingest.embed_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to embed and store: {e}")
+        upload_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Failed to embed and store document")
 
     # --- Result ---
     elapsed = time.perf_counter() - start_time
@@ -149,6 +184,7 @@ async def ingest_document(
         processing_time_seconds=round(elapsed, 2),
         vision_pages_processed=vision_pages,
         errors=errors,
+        notes=notes,
     )
 
     logger.info(
