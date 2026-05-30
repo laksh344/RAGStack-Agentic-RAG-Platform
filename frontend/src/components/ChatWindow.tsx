@@ -154,7 +154,7 @@ export default function ChatWindow({
       {/* ── Message list ─────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
         {loadingHistory && (
-          <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-8">
+          <div className="flex items-center justify-center gap-2 text-sm text-faint py-8">
             <Loader2 size={15} className="animate-spin" /> Loading conversation…
           </div>
         )}
@@ -172,7 +172,7 @@ export default function ChatWindow({
       </div>
 
       {/* ── Input bar ─────────────────────────────────────────── */}
-      <div className="shrink-0 border-t border-slate-700 bg-slate-900 px-4 py-3">
+      <div className="shrink-0 border-t border-edge bg-app px-4 py-3">
         <div className="flex items-end gap-3 max-w-4xl mx-auto">
           <textarea
             ref={inputRef}
@@ -182,13 +182,13 @@ export default function ChatWindow({
             placeholder="Ask anything about your documents…"
             rows={1}
             disabled={streaming}
-            className="flex-1 resize-none rounded-xl bg-slate-800 border border-slate-600 px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 max-h-36 overflow-y-auto"
+            className="flex-1 resize-none rounded-xl bg-surface border border-edge px-4 py-3 text-sm text-content placeholder-faint focus:outline-none focus:border-accent disabled:opacity-50 max-h-36 overflow-y-auto"
             style={{ lineHeight: "1.5" }}
           />
           <button
             onClick={handleSubmit}
             disabled={!input.trim() || streaming}
-            className="shrink-0 w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+            className="shrink-0 w-10 h-10 rounded-xl bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
             aria-label="Send"
           >
             {streaming
@@ -197,12 +197,42 @@ export default function ChatWindow({
             }
           </button>
         </div>
-        <p className="text-xs text-slate-600 text-center mt-2">
-          Hybrid search → Cohere rerank → GPT-4o · LangSmith traced
+        <p className="text-xs text-faint text-center mt-2">
+          Hybrid search → Cohere rerank → LLM · LangSmith traced
         </p>
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Strip inline "[Source: file, page N]" markers from the answer prose — the
+// same references are shown as clickable badges below the bubble, so keeping
+// them inline just clutters the text.
+function cleanAnswer(text: string): string {
+  return text
+    .replace(/\s*\[Source:[^\]]*\]/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;:])/g, "$1")
+    .trim();
+}
+
+// Collapse duplicate citations (same file + page) so we don't render three
+// identical badges.
+function dedupeCitations(citations: Citation[]): Citation[] {
+  const seen = new Set<string>();
+  const out: Citation[] = [];
+  for (const c of citations) {
+    const key = `${c.source_file}|${c.page_number}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(c);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,11 +242,11 @@ export default function ChatWindow({
 function WelcomeCard({ message }: { message: string }) {
   return (
     <div className="max-w-2xl mx-auto text-center py-12 px-6">
-      <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-xl font-bold mx-auto mb-4">
+      <div className="w-12 h-12 rounded-2xl bg-accent flex items-center justify-center text-xl font-bold mx-auto mb-4 text-white">
         R
       </div>
-      <h1 className="text-xl font-semibold mb-2">RAGStack Assistant</h1>
-      <p className="text-slate-400 text-sm leading-relaxed whitespace-pre-line">
+      <h1 className="text-xl font-semibold mb-2 text-content">RAGStack Assistant</h1>
+      <p className="text-muted text-sm leading-relaxed whitespace-pre-line">
         {message.replace(/\*\*/g, "").replace(/\*/g, "")}
       </p>
     </div>
@@ -233,6 +263,10 @@ function MessageBubble({
   const isUser = message.role === "user";
   const hasFlags = message.guardrail_flags.length > 0;
 
+  // Clean the displayed prose for assistant messages; users see their own text.
+  const displayText = isUser ? message.content : cleanAnswer(message.content);
+  const citations = dedupeCitations(message.citations);
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} max-w-4xl mx-auto w-full`}>
       <div className={`max-w-[80%] ${isUser ? "order-2" : ""}`}>
@@ -240,34 +274,39 @@ function MessageBubble({
         <div
           className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
             isUser
-              ? "bg-blue-600 text-white rounded-br-sm"
-              : "bg-slate-800 text-slate-100 rounded-bl-sm border border-slate-700"
+              ? "bg-accent text-white rounded-br-sm"
+              : "bg-surface text-content rounded-bl-sm border border-edge"
           }`}
         >
           <span className={message.streaming ? "streaming-cursor" : ""}>
-            {message.content || (message.streaming ? "" : "…")}
+            {displayText || (message.streaming ? "" : "…")}
           </span>
         </div>
 
-        {/* Citations */}
-        {message.citations.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {message.citations.map((cit, i) => (
-              <button
-                key={i}
-                onClick={() => onCitationClick(message.citations)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 transition-colors"
-              >
-                <span className="text-blue-400">↗</span>
-                {cit.source_file} p.{cit.page_number}
-              </button>
-            ))}
+        {/* References (deduped, shown at the end) */}
+        {citations.length > 0 && (
+          <div className="mt-2">
+            <div className="text-[11px] uppercase tracking-wide text-faint mb-1">
+              References
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {citations.map((cit, i) => (
+                <button
+                  key={i}
+                  onClick={() => onCitationClick(citations)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-elevated hover:bg-accent hover:text-white text-xs text-muted transition-colors"
+                >
+                  <span className="text-accent">↗</span>
+                  {cit.source_file} · p.{cit.page_number}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
         {/* Guardrail flags */}
         {hasFlags && (
-          <div className="flex items-center gap-1.5 mt-1.5 text-xs text-amber-400">
+          <div className="flex items-center gap-1.5 mt-1.5 text-xs text-amber-500">
             <AlertTriangle size={11} />
             {message.guardrail_flags.join(", ")}
           </div>
@@ -278,14 +317,14 @@ function MessageBubble({
           <div className="flex gap-2 mt-1.5">
             <button
               onClick={() => submitFeedback(message.id, 1)}
-              className="text-slate-500 hover:text-emerald-400 transition-colors"
+              className="text-faint hover:text-emerald-500 transition-colors"
               title="Good response"
             >
               <ThumbsUp size={13} />
             </button>
             <button
               onClick={() => submitFeedback(message.id, -1)}
-              className="text-slate-500 hover:text-red-400 transition-colors"
+              className="text-faint hover:text-red-500 transition-colors"
               title="Bad response"
             >
               <ThumbsDown size={13} />

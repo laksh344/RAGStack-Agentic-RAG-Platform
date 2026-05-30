@@ -6,6 +6,7 @@ import ChatWindow from "@/components/ChatWindow";
 import SourcePanel from "@/components/SourcePanel";
 import UploadZone from "@/components/UploadZone";
 import Sidebar from "@/components/Sidebar";
+import ThemeToggle from "@/components/ThemeToggle";
 import { listConversations } from "@/lib/api";
 import type { Citation, ConversationSummary } from "@/lib/types";
 
@@ -70,27 +71,27 @@ export default function HomePage() {
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       {/* ── Header ─────────────────────────────────────────────── */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-slate-700 bg-slate-900 shrink-0">
+      <header className="flex items-center justify-between px-6 py-3 border-b border-edge bg-app shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-sm font-bold">
+          <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center text-sm font-bold text-white">
             R
           </div>
-          <span className="font-semibold text-slate-100 tracking-tight">RAGStack</span>
-          <span className="text-xs text-slate-500 hidden sm:inline">
+          <span className="font-semibold text-content tracking-tight">RAGStack</span>
+          <span className="text-xs text-faint hidden sm:inline">
             Agentic RAG · Hybrid Search · Guardrails
           </span>
         </div>
 
         {/* Tab switcher */}
-        <nav className="flex gap-1 bg-slate-800 rounded-lg p-1">
+        <nav className="flex gap-1 bg-surface border border-edge rounded-lg p-1">
           {(["chat", "upload"] as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 activeTab === tab
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-accent text-white"
+                  : "text-muted hover:text-content"
               }`}
             >
               {tab === "chat"   && <MessageSquare size={14} />}
@@ -100,15 +101,18 @@ export default function HomePage() {
           ))}
         </nav>
 
-        <a
-          href="https://smith.langchain.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-        >
-          <BarChart2 size={13} />
-          LangSmith
-        </a>
+        <div className="flex items-center gap-3">
+          <a
+            href="https://smith.langchain.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-muted hover:text-content transition-colors"
+          >
+            <BarChart2 size={13} />
+            LangSmith
+          </a>
+          <ThemeToggle />
+        </div>
       </header>
 
       {/* ── Body ───────────────────────────────────────────────── */}
@@ -150,8 +154,8 @@ export default function HomePage() {
           {activeTab === "upload" && (
             <div className="flex-1 flex items-start justify-center p-8 overflow-y-auto">
               <div className="w-full max-w-2xl">
-                <h2 className="text-xl font-semibold mb-1">Upload Documents</h2>
-                <p className="text-slate-400 text-sm mb-6">
+                <h2 className="text-xl font-semibold mb-1 text-content">Upload Documents</h2>
+                <p className="text-muted text-sm mb-6">
                   PDF, DOCX, CSV, TXT — up to 50 MB. Documents are parsed, chunked,
                   embedded, and indexed for hybrid search.
                 </p>

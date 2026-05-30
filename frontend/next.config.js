@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // Hide the Next.js dev-tools indicator (the floating "N" button). It is a
+  // dev-only Next.js overlay, never part of the app or shown in production.
+  devIndicators: false,
   async rewrites() {
     return [
       {

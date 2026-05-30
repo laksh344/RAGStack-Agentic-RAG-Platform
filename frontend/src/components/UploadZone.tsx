@@ -108,15 +108,15 @@ export default function UploadZone() {
     <div className="space-y-6">
       {/* Strategy selector */}
       <div className="flex items-center gap-3">
-        <span className="text-sm text-slate-400">Chunking strategy:</span>
+        <span className="text-sm text-muted">Chunking strategy:</span>
         {(["recursive", "semantic"] as const).map((s) => (
           <button
             key={s}
             onClick={() => setStrategy(s)}
             className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
               strategy === s
-                ? "bg-blue-600 text-white"
-                : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                ? "bg-accent text-white"
+                : "bg-surface border border-edge text-muted hover:text-content"
             }`}
           >
             {s}
@@ -132,19 +132,19 @@ export default function UploadZone() {
         onDrop={onDrop}
         className={`relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-12 cursor-pointer transition-colors ${
           dragOver
-            ? "border-blue-500 bg-blue-950/30"
-            : "border-slate-600 bg-slate-800/50 hover:border-slate-500 hover:bg-slate-800"
+            ? "border-accent bg-accent/10"
+            : "border-edge bg-surface/50 hover:border-accent hover:bg-surface"
         }`}
       >
         <Upload
           size={32}
-          className={`transition-colors ${dragOver ? "text-blue-400" : "text-slate-500"}`}
+          className={`transition-colors ${dragOver ? "text-accent" : "text-faint"}`}
         />
         <div className="text-center">
-          <p className="text-sm font-medium text-slate-200">
-            Drop files here or <span className="text-blue-400">browse</span>
+          <p className="text-sm font-medium text-content">
+            Drop files here or <span className="text-accent">browse</span>
           </p>
-          <p className="text-xs text-slate-500 mt-1">PDF, DOCX, CSV, XLSX, TXT · max 50 MB</p>
+          <p className="text-xs text-faint mt-1">PDF, DOCX, CSV, XLSX, TXT · max 50 MB</p>
         </div>
         <input
           ref={inputRef}
@@ -168,22 +168,22 @@ export default function UploadZone() {
       {/* Persisted knowledge-base documents */}
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <Database size={15} className="text-slate-400" />
-          <h3 className="text-sm font-medium text-slate-200">
+          <Database size={15} className="text-muted" />
+          <h3 className="text-sm font-medium text-content">
             Knowledge Base
             {!loadingDocs && (
-              <span className="text-slate-500 font-normal"> · {documents.length} document
+              <span className="text-faint font-normal"> · {documents.length} document
                 {documents.length === 1 ? "" : "s"}</span>
             )}
           </h3>
         </div>
 
         {loadingDocs ? (
-          <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
+          <div className="flex items-center gap-2 text-sm text-faint py-4">
             <Loader2 size={14} className="animate-spin" /> Loading documents…
           </div>
         ) : documents.length === 0 ? (
-          <p className="text-sm text-slate-500 py-4 text-center border border-dashed border-slate-700 rounded-xl">
+          <p className="text-sm text-faint py-4 text-center border border-dashed border-edge rounded-xl">
             No documents yet. Upload a file to build your knowledge base.
           </p>
         ) : (
@@ -206,11 +206,11 @@ function DocumentRow({
   onDelete: (sourceFile: string) => void;
 }) {
   return (
-    <li className="group flex items-center gap-3 rounded-xl bg-slate-800 border border-slate-700 px-4 py-3">
-      <FileText size={16} className="shrink-0 text-blue-400" />
+    <li className="group flex items-center gap-3 rounded-xl bg-surface border border-edge px-4 py-3">
+      <FileText size={16} className="shrink-0 text-accent" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-slate-200 truncate">{doc.source_file}</p>
-        <div className="flex flex-wrap gap-x-4 mt-0.5 text-xs text-slate-500">
+        <p className="text-sm font-medium text-content truncate">{doc.source_file}</p>
+        <div className="flex flex-wrap gap-x-4 mt-0.5 text-xs text-faint">
           <span>{doc.chunk_count} chunks</span>
           {doc.file_type && <span>{doc.file_type.toUpperCase()}</span>}
           {doc.chunking_strategy && <span>{doc.chunking_strategy}</span>}
@@ -218,7 +218,7 @@ function DocumentRow({
       </div>
       <button
         onClick={() => onDelete(doc.source_file)}
-        className="shrink-0 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+        className="shrink-0 text-faint hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
         title="Remove from knowledge base"
       >
         <Trash2 size={15} />
@@ -230,19 +230,19 @@ function DocumentRow({
 function UploadRow({ record }: { record: UploadRecord }) {
   const { file, status, error } = record;
   return (
-    <li className="flex items-start gap-3 rounded-xl bg-slate-800 border border-slate-700 px-4 py-3">
+    <li className="flex items-start gap-3 rounded-xl bg-surface border border-edge px-4 py-3">
       <div className="shrink-0 mt-0.5">
-        {status === "uploading" && <Loader2 size={16} className="animate-spin text-blue-400" />}
-        {status === "success"   && <CheckCircle2 size={16} className="text-emerald-400" />}
-        {status === "error"     && <XCircle size={16} className="text-red-400" />}
+        {status === "uploading" && <Loader2 size={16} className="animate-spin text-accent" />}
+        {status === "success"   && <CheckCircle2 size={16} className="text-emerald-500" />}
+        {status === "error"     && <XCircle size={16} className="text-red-500" />}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-slate-200 truncate">{file.name}</p>
+        <p className="text-sm font-medium text-content truncate">{file.name}</p>
         {status === "uploading" && (
-          <p className="text-xs text-slate-500 mt-0.5">Parsing, chunking, embedding…</p>
+          <p className="text-xs text-faint mt-0.5">Parsing, chunking, embedding…</p>
         )}
         {status === "error" && (
-          <p className="text-xs text-red-400 mt-0.5">{error}</p>
+          <p className="text-xs text-red-500 mt-0.5">{error}</p>
         )}
       </div>
     </li>
